@@ -6,16 +6,21 @@
  * Access email from an IMAP or POP account.
  * Currenly only supports fetching attachments.
  *
- * @see http://github.com/driverdan/emailreader
- * @see http://driverdan.com
+ * @see http://github.com/henridv/emailreader
+ * @see http://henridv.be
  *
  * @author Dan DeFelippi <dan@driverdan.com>
+ * @author Henri De Veene <info@henridv.be>
  * @license MIT
  * @todo Add additional features beyond saving attachments.
  */
 class EmailReader {
 	// Stores mailbox stream
 	private $mbox;
+
+	private $uids         = array();
+	private $numEmails 	  = 0;
+	static private $count = 0;
 	
 	// Email part types. Accessed via array position, do not reorder.
 	var $partTypes = array(
@@ -41,14 +46,40 @@ class EmailReader {
 	 * @return bool Returns true on success, false on failure.
 	 */
 	function __construct($host, $user, $password) {
-		return (bool)($this->mbox = imap_open($host, $user, $password));
+		$this->mbox = imap_open($host, $user, $password);
+
+		if ($this->mbox === false)
+		{
+			return false;
+		}
+		else
+		{
+			$this->uids = imap_search($this->mbox, 'ALL', SE_UID);
+			self::$count = 0;
+			$this->numEmails = imap_num_msg($this->mbox);
+			return true;
+		}
 	}
-	
+
 	/**
 	 * Destructor closes server connection.
 	 */
 	function __destruct() {
 		imap_close($this->mbox);
+	}
+
+	function next($next = NULL)
+	{
+		if ($next != NULL) self::$count = $next;
+		if (self::$count === $this->numEmails)
+		{
+			// no more mails
+			return false;
+		}
+		else
+		{
+			return new Email($this->mbox, $this->uids[self::$count++]);
+		}
 	}
 	
 	/**
@@ -91,7 +122,7 @@ class EmailReader {
 	 * @param bool $delete Delete all emails after processing. Default is true.
 	 */
 	function saveAttachments($path, $inline = true, $delete = true) {
-		$numMessages = $this->getNumMessages();
+		$numMessages = $this->getNumEmails();
 		
 		// Append slash to path if missing
 		if ($path[strlen($path) - 1] != '/') {
@@ -153,8 +184,8 @@ class EmailReader {
 	 *
 	 * @return int Number of messages in the mailbox.
 	 */
-	function getNumMessages() {
-		return imap_num_msg($this->mbox);
+	function getNumEmails() {
+		return $this->numEmails;
 	}
 	
 	/**
@@ -176,5 +207,23 @@ class EmailReader {
 	 */
 	function expunge() {
 		imap_expunge($this->mbox);
+	}
+}
+
+class Email
+{
+	private $uid;
+	private $body;
+
+	function __construct($mbox, $uid) {
+		$this->uid = $uid;
+		$this->body = imap_body($mbox, $uid, FT_UID);
+	}
+
+	function getEmailAddress()
+	{
+		$regex = "/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,4}\b/";
+		preg_match_all($regex, strtolower($this->body), $matches);
+		return array_unique($matches[0]);
 	}
 }
